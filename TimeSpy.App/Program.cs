@@ -13,6 +13,14 @@ namespace TimeSpy
         {
             return new WinDesktop();
         }
+
+        public static TimeSpyViewModel MakeModel()
+        {
+            var spy = new Spy(new WinUserActivityHook(), new WinDesktop());
+            var model = new TimeSpyViewModel(new TimeAggregator(spy));
+            spy.Start();
+            return model;
+        }
     }
 
 
@@ -30,7 +38,7 @@ namespace TimeSpy
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new TimeSpyForm());
+            Application.Run(new TimeSpyForm(AppFactory.MakeModel()));
         }
     }
 }

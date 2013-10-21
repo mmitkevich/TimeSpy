@@ -68,6 +68,8 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Common\DynamicExtensions.cs" />
+    <Compile Include="JsonExtensions.cs" />
     <Compile Include="Spy\Aggregator.cs" />
     <Compile Include="Spy\App.cs" />
     <Compile Include="Spy\AppSpyConfig.cs" />

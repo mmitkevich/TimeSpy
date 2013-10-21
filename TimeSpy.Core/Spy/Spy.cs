@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 using System.Globalization;
+using Newtonsoft.Json.Linq;
 
 namespace TimeSpy
 {
@@ -17,11 +18,10 @@ namespace TimeSpy
         MouseMove = 6,
     }
 
-    public class SpyEvent:Detailed
+    public class SpyEvent:JObject
     {
-        public SpyEventType EventType;
-        public DateTime Time;
-
+        public SpyEventType EventType { get { return this.GetOrSet("EventType",SpyEventType.ActiveAppChanged); } set { this.Set("EventType",value); } }
+        public DateTime Time { get { return this.GetOrSet("Time",default(DateTime)); } set { this.Set("Time",value); } }
 
         public SpyEvent(SpyEventType eventType)
         {
@@ -29,9 +29,13 @@ namespace TimeSpy
             Time = DateTime.Now;
         }
 
+        public SpyEvent()
+        {
+            Time = DateTime.Now;
+        }
         public override string ToString()
         {
-            return string.Format("T={0},E={1},{2}", Time.ToShortTimeString(), EventType, base.ToString());
+            return string.Format("T={0},E={1},{2}", Time, EventType, base.ToString());
         }
     }
 
@@ -98,32 +102,36 @@ namespace TimeSpy
                 LastMouseMove = DateTime.Now;
 
                 var se = new SpyEvent(type);
-                se.Set("X", args.X)
-                  .Set("Y", args.Y);
-
+                se.AsDyn().X = args.X;
+                se.AsDyn().Y = args.Y;
                 RaiseNewEvent(se);
             }
         }
 
         protected virtual void OnKeyPress(object sender, KeyPressEventArgs args)
         {
-            var se = new SpyEvent(SpyEventType.KeyPress);
-            se.Set("UnicodeCategory", Char.GetUnicodeCategory(args.KeyChar).ToString())
-            .Set("Layout", InputLanguage.CurrentInputLanguage.LayoutName);
+            var se = new SpyEvent(SpyEventType.KeyPress).DoDyn(x=>
+                {
+                    x.UnicodeCategory = Char.GetUnicodeCategory(args.KeyChar).ToString();
+                    x.Layout = InputLanguage.CurrentInputLanguage.LayoutName;
+                });
+
             RaiseNewEvent(se);
         }
 
-        private void AppChanged(AppInfo newApp,AppInfo oldApp)
+        private void AppChanged(AppInfo newApp, AppInfo oldApp)
         {
-            var se = new SpyEvent(SpyEventType.ActiveAppChanged);
-            se.Set("Pid",newApp.Pid)
-                    .Set("ProcessName", newApp.ProcessName)
-                    .Set("MainWindowTitle", newApp.MainWindowTitle)
-                    .Set("ActiveWindowTitle", newApp.ActiveWindowTitle)
-                    .Set("FocusWindowTitle", newApp.FocusWindowTitle)
-                    .Set("PrevPid", oldApp.Pid);
-            se.Merge(newApp, true);
-
+            var se =  new SpyEvent()
+                .MergeInto(newApp).DoDyn(newApp, (x,a) =>
+                {
+                    x.Type = SpyEventType.ActiveAppChanged;
+                    x.Pid = a.Pid;
+                    x.ProcessName = a.ProcessName;
+                    x.MainWindowTitle = a.MainWindowTitle;
+                    x.ActiveWindowTitle = a.ActiveWindowTitle;
+                    x.FocusWindowTitle = a.FocusWindowTitle;
+                    x.PrevPid = oldApp.Pid;
+                });
             RaiseNewEvent(se);
         }
 

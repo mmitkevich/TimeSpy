@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Newtonsoft.Json.Linq;
 
 namespace TimeSpy
 {
@@ -110,34 +111,42 @@ namespace TimeSpy
         }
     }
 
+   
+
     public class TimeAggregator
     {
-        public TimeNode Root = new TimeNode();
         public Spy Spy;
-        public TimeNode Last;
-        public event Action<TimeAggregator, IEnumerable<TimeNode>> NodeUpdated;
+
+        public JObject Root = new JObject();
+        public JObject Last;
+
+        public string GroupBy = "ProcessName,Url,MainWindowTitle";
+
+        public event Action<TimeAggregator, JObject> NodeInserted;
+        public event Action<TimeAggregator, JObject> NodeUpdated;
         public event Action<TimeAggregator, SpyEvent> NewEvent;
 
         public TimeAggregator(Spy spy)
         {
             Spy = spy;
             Last = Root;
-            Last.BeginTime = DateTime.Now;
+            Last.DoDyn(x=> x.BeginTime = DateTime.Now);
+
             Spy.NewEvent += OnNewEvent;
             Spy.Timer.Tick += OnTimerTick;
         }
-        public void RaiseNodeUpdated(IEnumerable<TimeNode> nodes)
+
+        public void RaiseNodeInserted(JObject node)
         {
-            if (null != NodeUpdated)
-                NodeUpdated(this, nodes);
+            if (null != NodeInserted)
+                NodeInserted(this, node);
         }
 
-        private static IDetail[] pathTemplate = new IDetail[] { 
-                                    AppDetails.ProcessName.D, 
-                                        AppDetails.Url.D,
-                                            AppDetails.MainWindowTitle.D, 
-//                                          AppDetails.Pid.D
-        };
+        public void RaiseNodeUpdated(JObject node)
+        {
+            if (null != NodeUpdated)
+                NodeUpdated(this, node);
+        }
 
         public virtual void OnNewEvent(Spy sender, SpyEvent se)
         {
@@ -146,54 +155,74 @@ namespace TimeSpy
 
             var now = DateTime.Now;
 
-            var path = pathTemplate.Select(p => se.Get(p.Name)).ToArray();
-
-            var changed = Aggregate(path, now);
-
-            RaiseNodeUpdated(new[]{changed[0]});
-
             if (null != NewEvent)
                 NewEvent(this, se);
+
+            Last = Aggregate(GroupBy.Split(',').Select(g=>se.Get(g,string.Empty)).Where(s=>s.Length>0).ToArray(), now);
+
         }
 
+       
         public virtual void OnTimerTick(object sender, EventArgs args)
         {
-            var changed = Aggregate(Last.Path.Select(x=>x.Id).ToArray(), DateTime.Now);
-            if(changed.Count>0)
-                RaiseNodeUpdated(new []{ changed[0] });            
+            Aggregate(Last.GetAncestorObjects().Select((dynamic x) => (string)x.Id).ToArray(), 
+                DateTime.Now);
         }
 
-        public List<TimeNode> Aggregate(object[] path, DateTime now)
+        public JObject Aggregate(object[] pathItems, DateTime now)
         {
-            TimeNode newNode = null;
-            var lastPath = Last.Path.Select(x=>x.Id).ToArray();
-            var changed = Root.WalkPath(path,
-                i =>
-                {
-                    var n = new TimeNode();
-                    n.BeginTime = n.EndTime = now;
-                    newNode = newNode ?? n;
-                    i++;
-                    return n;
-                },
-                (i, node) =>
-                {
-                    if (i < 0) return;
-                    if (i >= lastPath.Length || !object.Equals(node.Id, lastPath[i]))
-                    {
-                        //switched
-                        node.BeginTime = node.EndTime = now;
-                    } // else n==lastPath[level]
-                    node.Time += now - node.EndTime;
-                    node.EndTime = now;
-                });
-            
-            Last = changed.Last();
+            JObject createdNode = null;
+            JObject updatedNode = null;
 
-            int first = changed.IndexOf(newNode);
-            if (first >= 2)
-                changed.RemoveRange(0, first - 1);    // x,x,p,n,y,y -> p,n,y,y
-            return changed;
+            var lastAncestors = Last.GetAncestorObjects();
+            var result = Root.WalkPath(pathItems.Length,
+                    (ofs,parent) => parent.GetChild(pathItems[ofs]),
+                    (ofs,parent) => parent.GetOrAddChild(pathItems[ofs], 
+                        id => new JObject().DoGet(x =>
+                            {
+                                x["Id"] = (string)pathItems[ofs];
+                                x["BeginTime"] = x["EndTime"] = now;
+                                x["TotalTime"] = TimeSpan.Zero;
+                                createdNode = createdNode ?? x;
+                                return x;
+                            }
+                            /*.DoDyn(
+                            x =>
+                            {
+                                x.Id = pathItems[ofs];
+                                x.BeginTime = now;
+                                x.EndTime = now;
+                                x.TotalTime = TimeSpan.Zero;
+                                createdNode = createdNode ?? x;
+                            }*/
+                        )
+                    ),
+                    (ofs,node) =>
+                        {
+                            if (ofs >= lastAncestors.Count || lastAncestors[ofs] != node)
+                                //node.DoDyn(x => { x.BeginTime = x.EndTime = now; }); // switched
+                                node["BeginTime"]=node["EndTime"]=now;
+                            else
+                            {
+                                node["TotalTime"] = node.Get("TotalTime", TimeSpan.Zero) +
+                                                    (now - node.Get("EndTime", now));
+                                node["EndTime"] = now;
+                                /* node.DoDyn(x =>
+                                    {
+                                        // add
+                                        x.TotalTime = ((TimeSpan) x.TotalTime + (now - (DateTime) x.EndTime));
+                                        x.EndTime = now;
+                                    }
+                                    );*/
+                            }
+                            updatedNode = updatedNode ?? node;
+                        }
+                );
+            if (null != createdNode)
+                RaiseNodeInserted(createdNode);
+            if (null != updatedNode)
+                RaiseNodeUpdated(updatedNode);
+            return result;
         }
     }
 }

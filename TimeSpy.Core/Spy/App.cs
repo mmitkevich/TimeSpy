@@ -8,6 +8,7 @@ using System.Diagnostics;
 using NLog;
 using System.Windows.Forms;
 using System.Drawing;
+using Newtonsoft.Json.Linq;
 
 namespace TimeSpy
 {
@@ -43,14 +44,14 @@ namespace TimeSpy
         }
     }
 
-    public class AppInfo:Detailed
+    public class AppInfo:JObject
     {
         // template who filled this AppInfo
         public App App;
 
         // process id and name
-        public String ProcessName;
-        public int Pid;
+        public String ProcessName { get { return (string)base["ProcessName"];} set { base["ProcessName"] = new JValue(value); } }
+        public Int32? Pid { get { return (Int32?)base["Pid"]; } set { base["Pid"] = new JValue(value); } }
 
         // process' main window 
         public IntPtr MainWindowHandle;

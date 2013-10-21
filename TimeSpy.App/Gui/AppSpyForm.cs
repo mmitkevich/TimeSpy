@@ -6,57 +6,98 @@ using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 using NLog;
+using Newtonsoft.Json.Linq;
 
 namespace TimeSpy
 {
 
-
-    public partial class TimeSpyForm : Form
+    public partial class TimeSpyForm : Form, ReactiveUI.IViewFor<TimeSpyViewModel>
     {
-        private Dictionary<int, TimeNode> _byPid = new Dictionary<int, TimeNode>();
-
-        private Spy _spy;
-        private TimeAggregator _agg;
         private static Logger logger = LogManager.GetCurrentClassLogger();
-        private int _activePid = 0;
 
-        public TimeSpyForm()
+        public TimeSpyViewModel ViewModel { get; set; }
+
+        public TimeSpyForm(TimeSpyViewModel model)
         {
-            _spy = new Spy(new WinUserActivityHook(),new WinDesktop());
-            _agg = new TimeAggregator(_spy);
+            ViewModel = model;
             InitializeComponent();
         }
 
         private void TimeSpyForm_Load(object sender, EventArgs e)
         {
-            MainTree.Configure(new[]{_agg.Root}, TimeNode.allDetails);
-
-            //_spy.NewEvent += OnNewEvent;
-            _agg.NewEvent += OnNewEvent;
-            _agg.NodeUpdated += OnNodeUpdated;
-            _spy.Start();
+            ViewModel.Connect(this);
         }
 
-        private void OnNewEvent(TimeAggregator sender, SpyEvent se)
+       object ReactiveUI.IViewFor.ViewModel
+        {
+            get { return ViewModel; }
+            set
+            {
+                throw new NotImplementedException();
+            }
+        }
+
+       private void toolStripButton1_Click(object sender, EventArgs e)
+       {
+
+       }
+    }
+
+    public class TimeSpyViewModel:ReactiveUI.ReactiveObject
+    {
+        private static Logger logger = LogManager.GetCurrentClassLogger();
+
+        public TimeAggregator Agg;
+        public JsonTreeViewModel AggTree;
+
+        public TimeSpyForm View;
+
+        public TimeSpyViewModel(TimeAggregator agg)
+        {
+            Agg = agg;
+            AggTree = new JsonTreeViewModel(Agg.Root);
+        }
+
+        private string[] columns = new[] { "Id", "TotalTime", "BeginTime", "EndTime" };
+
+        public void Connect(TimeSpyForm form)
+        {
+            View = form;
+
+            AggTree.Connect(View.TreeView, x => columns);
+
+            //_spy.NewEvent += OnNewEvent;
+            Agg.NewEvent += OnNewEvent;
+            Agg.NodeInserted += OnNodeInserted;
+            Agg.NodeUpdated += OnNodeUpdated;
+        }
+
+        protected virtual void OnNewEvent(TimeAggregator sender, SpyEvent se)
         {
             logger.Info(se);
             if (se.EventType == SpyEventType.ActiveAppChanged)
             {
-                OnActiveChanged(AppDetails.Pid.Get(se));
+                
             }
         }
 
-        private void OnActiveChanged(int pid)
+        protected virtual void OnActiveChanged(int pid)
         {
-            _activePid = pid;
-           
+
         }
 
-        private void OnNodeUpdated(TimeAggregator sender, IEnumerable<TimeNode> agns)
+        protected virtual void OnNodeInserted(TimeAggregator sender, JObject node)
         {
-            foreach (var n in agns)
-                MainTree.RefreshObject(n);
+            var p = node.GetParentObject();
+            if(p==Agg.Root)
+                View.TreeView.AddObject(node);
+            else
+                View.TreeView.RefreshObject(p);
         }
-    
+
+        protected virtual void OnNodeUpdated(TimeAggregator sender, JObject node)
+        {
+            View.TreeView.RefreshObject(node);
+        }
     }
 }

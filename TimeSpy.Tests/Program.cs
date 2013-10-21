@@ -17,7 +17,8 @@ namespace TimeSpy
             target.Layout = "${message}";
             NLog.Config.SimpleConfigurator.ConfigureForTargetLogging(target);
 
-            AppSpyTest();
+           //AppSpyTest();
+            JsonNetTest.Test();
         }
 
         public static void AppSpyTest()
